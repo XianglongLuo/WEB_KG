@@ -27,6 +27,8 @@ class BaikeSpider(scrapy.Spider):
     baike_items = db['baike_items']
     # 之前跑过 然后后面重新启动再跑，就从数据库里面读出已经爬过的实体
     olds = set([item['item_name'] for item in baike_items.find({}, {'item_name': 1})])
+    count = baike_items.find({}).count()
+    max_size = 10
     # 使用队列实现广度优先遍历
     spider_queue = Queue()
     if len(olds) > 0:
@@ -43,8 +45,8 @@ class BaikeSpider(scrapy.Spider):
                name1=name1, name2=name2)
 
     def parse(self, response):
-        count = self.baike_items.find({}).count()
-        if count >= 100:
+        # 为了以防刚刚从数据库里面读取出来的时候就已经是一千，然后运行这个方法就多插入了一条
+        if self.count >= self.max_size:
             return
         print(response.url)
         # response为返回的网页内容
@@ -118,6 +120,7 @@ class BaikeSpider(scrapy.Spider):
                                 self.add_node, entity, relation_name, person_name)
                 try:
                     self.baike_items.insert_one(item_dict)
+                    self.count = self.count + 1
                 except pymongo.errors.DuplicateKeyError:
                     pass
             except Exception as e:
@@ -128,7 +131,7 @@ class BaikeSpider(scrapy.Spider):
         self.olds.add(entity)
         # 爬取页面内的item,获取页面中可爬的item(找a标签href属性包含item的链接中的 /item/xxx)
         items = set(response.xpath(
-            '//a[contains(@href, "/item/")]/@href').re(r'/item/[A-Za-z0-9%\u4E00-\u9FA5]+'))
+            '//div[@class="main-content"]//a[contains(@href, "/item/")]/@href').re(r'/item/[A-Za-z0-9%\u4E00-\u9FA5]+'))
         # 这些item都成为预爬元素,存入队列，广度优先遍历
         for item in items:
             url = 'https://baike.baidu.com' + urllib.parse.unquote(item)
